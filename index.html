@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#F5F5F7" />
+<title>Debate — Audience Vote</title>
+
+<!--
+================================================================
+  DEBATE — LIVE AUDIENCE VOTE  (single file, one-off, classroom use)
+  Affirmative = Digital = blue.   Negative = Paper = red.
+  This tool ONLY counts + shows votes. It does NOT pick a winner —
+  the moderator reveals the winner from the PowerPoint hidden slides.
+================================================================
+
+SETUP  (do this tomorrow, ~5 min — needs your own Firebase account):
+
+  1. console.firebase.google.com  ->  Add project  (free Spark plan; skip Analytics).
+
+  2. Build  ->  Realtime Database  ->  Create Database  ->  pick a location
+     ->  start in "locked mode".
+
+  3. Rules tab  ->  paste this, Publish:
+       {
+         "rules": {
+           "votes": {
+             ".read": true,
+             ".write": true,
+             "digital": { ".validate": "newData.isNumber()" },
+             "paper":   { ".validate": "newData.isNumber()" }
+           }
+         }
+       }
+     (Public read/write, but ONLY the two counters live here — no personal
+      data — so this is fine for a single classroom vote.)
+
+  4. Project settings (gear)  ->  Your apps  ->  Web (</>)  ->  register an app
+     ->  copy the firebaseConfig object.
+     IMPORTANT: it MUST include "databaseURL". If it doesn't, you registered the
+     app before the database existed — re-copy after step 2, or paste the
+     databaseURL shown on the Realtime Database page.
+
+  5. Paste that object below where firebaseConfig is defined.
+     (DONE — config is already filled in, so the tool is live.)
+
+DEPLOY: host this index.html anywhere static (e.g. GitHub Pages).
+  - Voting QR = the deployed URL itself (phones open this).
+       ^ This is the NEW vote QR. It is NOT the handout entry QR — two different things.
+  - Presenter = the same URL + ?present  (open on the projector machine; full screen / alt-tab).
+
+PREVIEW TODAY (before any config): just open this file in a browser. It runs in a
+local preview mode so you can check the layout + animation. In the PRESENTER view,
+press D or P to add demo votes and watch the bars move.
+(Local preview does NOT sync across devices — real cross-device sync needs Firebase.)
+================================================================
+-->
+
+<style>
+  :root{
+    /* ---- project palette ---- */
+    --blue:#0071E3;            /* Digital / Affirmative */
+    --red:#D2382C;             /* Paper / Negative — matches the deck (design-system.js) */
+    --ink:#1D1D1F;
+    --ink2:#6E6E73;
+    --ink3:#8E8E93;
+    --bg:#F5F5F7;              /* projector background (swap to #1D1D1F for a dark stage) */
+    --on-bg:#1D1D1F;
+    --track:#E7E7EC;           /* empty bar track */
+    --hair:#E2E2E7;
+    --white:#FFFFFF;
+    --ease:cubic-bezier(.22,1,.36,1);
+    --font:"SF Pro Display","SF Pro Text","Helvetica Neue","Segoe UI",-apple-system,BlinkMacSystemFont,Arial,sans-serif;
+  }
+
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    margin:0;font-family:var(--font);color:var(--ink);
+    background:var(--bg);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    overflow:hidden;
+  }
+  body.mode-vote .present-view{display:none}
+  body.mode-present .vote-view{display:none}
+
+  /* ============================ VOTE VIEW (phones) ============================ */
+  .vote-view{height:100dvh;height:100vh;display:flex;flex-direction:column}
+
+  .choices{flex:1;display:flex;flex-direction:column}
+  .choice{
+    flex:1;border:0;margin:0;padding:0;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:#fff;font-family:inherit;position:relative;
+    transition:transform .22s var(--ease),filter .22s var(--ease);
+    animation:rise .55s var(--ease) both;
+  }
+  .choice .label{font-size:clamp(40px,13vw,104px);font-weight:700;letter-spacing:-.02em;line-height:1}
+  .choice .hint{margin-top:14px;font-size:clamp(13px,3.6vw,20px);font-weight:500;opacity:.85}
+  .choice.digital{background:var(--blue);animation-delay:.02s}
+  .choice.paper{background:var(--red);animation-delay:.09s}
+  .choice:active{transform:scale(.985);filter:brightness(.94)}
+  .vote-view.locked .choice{cursor:default;pointer-events:none;filter:saturate(.55) brightness(.92)}
+  .vote-view.connecting .choice{pointer-events:none;opacity:.55}
+
+  .tagline{
+    flex:0 0 auto;text-align:center;color:var(--ink2);
+    font-size:13px;font-weight:500;padding:13px 16px;
+    background:var(--bg);
+  }
+  .tagline b{color:var(--ink);font-weight:600}
+
+  /* confirmation (after a vote) */
+  .thanks{
+    position:fixed;inset:0;background:var(--bg);color:var(--ink);
+    display:none;flex-direction:column;align-items:center;justify-content:center;
+    padding:32px;text-align:center;
+  }
+  .thanks.show{display:flex;animation:fade .45s var(--ease) both}
+  .check{
+    width:84px;height:84px;border-radius:50%;display:grid;place-items:center;
+    margin-bottom:26px;animation:pop .5s var(--ease) both;
+  }
+  .check.digital{background:var(--blue)}
+  .check.paper{background:var(--red)}
+  .check svg{width:42px;height:42px;stroke:#fff;stroke-width:3.4;fill:none;
+    stroke-linecap:round;stroke-linejoin:round;
+    stroke-dasharray:36;stroke-dashoffset:36;animation:draw .5s .12s var(--ease) forwards}
+  .thanks h1{font-size:clamp(30px,8vw,46px);font-weight:700;letter-spacing:-.02em;margin:0 0 10px}
+  .thanks p{font-size:clamp(16px,4.4vw,21px);color:var(--ink2);margin:0;font-weight:500;max-width:18em;line-height:1.45}
+  .thanks .small{margin-top:18px;font-size:13px;color:var(--ink3)}
+
+  /* ============================ PRESENTER VIEW (projector) ============================ */
+  .present-view{height:100dvh;height:100vh;display:flex;flex-direction:column;
+    padding:clamp(28px,5vh,72px) clamp(24px,5vw,90px);position:relative}
+  .pv-head{flex:0 0 auto;text-align:center}
+  .pv-eyebrow{font-size:clamp(13px,1.5vw,18px);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink3);font-weight:600}
+  .pv-title{font-size:clamp(24px,3.4vw,46px);font-weight:700;letter-spacing:-.02em;
+    color:var(--ink);margin:.35em 0 0;line-height:1.05}
+
+  .pv-stage{flex:1;display:flex;align-items:flex-end;justify-content:center;
+    gap:clamp(40px,11vw,180px);padding:clamp(20px,4vh,48px) 0}
+  .col{display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end}
+  .num{font-size:clamp(52px,9.5vw,168px);font-weight:700;letter-spacing:-.03em;line-height:1;
+    color:var(--ink);font-variant-numeric:tabular-nums;margin-bottom:clamp(14px,2vh,28px);
+    transform-origin:center bottom}
+  .bar-track{
+    width:clamp(110px,21vw,300px);
+    height:clamp(220px,52vh,560px);
+    background:var(--track);border-radius:clamp(16px,2vw,30px);
+    display:flex;align-items:flex-end;overflow:hidden;
+  }
+  .bar-fill{
+    width:100%;height:0;border-radius:clamp(16px,2vw,30px);
+    transition:height .75s var(--ease);
+  }
+  .bar-fill.digital{background:var(--blue)}
+  .bar-fill.paper{background:var(--red)}
+  .col .label{margin-top:clamp(16px,2.4vh,30px);font-size:clamp(18px,2.4vw,36px);
+    font-weight:600;color:var(--ink2);letter-spacing:-.01em}
+
+  .pv-foot{flex:0 0 auto;text-align:center;color:var(--ink3);
+    font-size:clamp(13px,1.5vw,18px);font-weight:500}
+  .pv-foot b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+
+  /* preview-mode banner (only when Firebase is not configured) */
+  .preview-flag{
+    position:fixed;top:16px;left:50%;transform:translateX(-50%);
+    background:rgba(29,29,31,.9);color:#fff;border-radius:999px;
+    padding:8px 16px;font-size:13px;font-weight:600;letter-spacing:.01em;
+    z-index:30;display:none;white-space:nowrap;
+  }
+  .preview-flag.show{display:block}
+
+  /* discreet reset control (presenter only) */
+  .reset-btn{
+    position:fixed;left:16px;bottom:14px;z-index:20;
+    border:0;background:transparent;color:var(--ink3);
+    font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;
+    padding:8px 12px;border-radius:999px;opacity:.22;transition:opacity .2s var(--ease)}
+  .reset-btn:hover{opacity:.7;background:rgba(0,0,0,.04)}
+  body.mode-vote .reset-btn{display:none}
+
+  .modal{position:fixed;inset:0;z-index:40;display:none;
+    align-items:center;justify-content:center;padding:24px;
+    background:rgba(0,0,0,.32);backdrop-filter:blur(2px)}
+  .modal.show{display:flex;animation:fade .2s var(--ease) both}
+  .sheet{background:var(--white);border-radius:22px;max-width:380px;width:100%;
+    padding:28px 26px 22px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.22)}
+  .sheet h2{margin:0 0 8px;font-size:21px;font-weight:700;letter-spacing:-.01em}
+  .sheet p{margin:0 0 22px;color:var(--ink2);font-size:15px;line-height:1.5}
+  .sheet .row{display:flex;gap:10px}
+  .sheet button{flex:1;border:0;border-radius:13px;padding:13px;font-family:inherit;
+    font-size:16px;font-weight:600;cursor:pointer}
+  .btn-cancel{background:#ECECEE;color:var(--ink)}
+  .btn-danger{background:var(--red);color:#fff}
+
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  @keyframes pop{0%{opacity:0;transform:scale(.7)}60%{transform:scale(1.06)}100%{opacity:1;transform:scale(1)}}
+  @keyframes draw{to{stroke-dashoffset:0}}
+</style>
+</head>
+<body>
+
+  <!-- ======================= VOTING VIEW (default / QR target) ======================= -->
+  <div class="vote-view connecting" id="voteView">
+    <div class="choices">
+      <button class="choice digital" data-side="digital">
+        <span class="label">Digital</span>
+        <span class="hint">Tap to vote</span>
+      </button>
+      <button class="choice paper" data-side="paper">
+        <span class="label">Paper</span>
+        <span class="hint">Tap to vote</span>
+      </button>
+    </div>
+    <div class="tagline">Tap once to cast your vote. <b>One vote per device.</b></div>
+
+    <div class="thanks" id="thanks">
+      <div class="check" id="checkBox">
+        <svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+      </div>
+      <h1>Thanks!</h1>
+      <p>Your vote is in. Please look at the big screen.</p>
+      <div class="small">One vote per device.</div>
+    </div>
+  </div>
+
+  <!-- ======================= PRESENTER VIEW (?present) ======================= -->
+  <div class="present-view" id="presentView">
+    <div class="pv-head">
+      <div class="pv-eyebrow">Audience vote</div>
+      <div class="pv-title">Which would you give a child?</div>
+    </div>
+
+    <div class="pv-stage">
+      <div class="col">
+        <div class="num" id="numDigital" data-v="0">0</div>
+        <div class="bar-track"><div class="bar-fill digital" id="barDigital"></div></div>
+        <div class="label">Digital</div>
+      </div>
+      <div class="col">
+        <div class="num" id="numPaper" data-v="0">0</div>
+        <div class="bar-track"><div class="bar-fill paper" id="barPaper"></div></div>
+        <div class="label">Paper</div>
+      </div>
+    </div>
+
+    <div class="pv-foot"><b id="totalVotes">0</b> votes</div>
+
+    <div class="preview-flag" id="previewFlag">Preview mode — press D / P to add demo votes</div>
+    <button class="reset-btn" id="resetBtn">reset</button>
+  </div>
+
+  <!-- reset confirmation -->
+  <div class="modal" id="resetModal">
+    <div class="sheet">
+      <h2>Reset all votes?</h2>
+      <p>This sets both counters back to zero. Use it before the show to clear test votes.</p>
+      <div class="row">
+        <button class="btn-cancel" id="resetCancel">Cancel</button>
+        <button class="btn-danger" id="resetConfirm">Reset</button>
+      </div>
+    </div>
+  </div>
+
+<script type="module">
+  /* ===================== 1. FIREBASE CONFIG ===================== */
+  const firebaseConfig = {
+    apiKey: "AIzaSyAe19VQCj-nCOZD4pfGVpJT6trxKouqm8o",
+    authDomain: "team-innovation-vote.firebaseapp.com",
+    databaseURL: "https://team-innovation-vote-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "team-innovation-vote",
+    storageBucket: "team-innovation-vote.firebasestorage.app",
+    messagingSenderId: "1090119875505",
+    appId: "1:1090119875505:web:1d9a557633431533cd1b90"
+  };
+  // We treat the tool as "live" only once a databaseURL is present.
+  const CONFIG_READY = !!(firebaseConfig && firebaseConfig.databaseURL);
+
+  /* ===================== 2. BACKENDS (same interface) ===================== */
+  // Local preview backend — in-memory, single window, no network. For testing layout/animation.
+  function makeLocalBackend(){
+    let state = { digital:0, paper:0 };
+    const subs = new Set();
+    const emit = () => subs.forEach(cb => cb({ ...state }));
+    return {
+      mode:"local",
+      vote(side){ state[side] = (state[side]||0) + 1; emit(); },
+      subscribe(cb){ subs.add(cb); cb({ ...state }); return () => subs.delete(cb); },
+      reset(){ state = { digital:0, paper:0 }; emit(); }
+    };
+  }
+
+  // Firebase Realtime Database backend — atomic counters, real cross-device sync.
+  async function makeFirebaseBackend(){
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js");
+    const { getDatabase, ref, onValue, runTransaction, set } =
+      await import("https://www.gstatic.com/firebasejs/11.1.0/firebase-database.js");
+    const app = initializeApp(firebaseConfig);
+    const db  = getDatabase(app);
+    const votesRef = ref(db, "votes");
+    return {
+      mode:"firebase",
+      async vote(side){
+        // transaction = safe under many people tapping at the same time
+        await runTransaction(ref(db, "votes/" + side), cur => (cur || 0) + 1);
+      },
+      subscribe(cb){
+        return onValue(votesRef, snap => {
+          const v = snap.val() || {};
+          cb({ digital: v.digital || 0, paper: v.paper || 0 });
+        });
+      },
+      async reset(){ await set(votesRef, { digital:0, paper:0 }); }
+    };
+  }
+
+  let backend = null;
+  async function initBackend(){
+    if (CONFIG_READY){
+      try { backend = await makeFirebaseBackend(); }
+      catch(err){ console.error("Firebase init failed, falling back to local:", err); backend = makeLocalBackend(); }
+    } else {
+      backend = makeLocalBackend();
+    }
+    return backend;
+  }
+
+  /* ===================== 3. VIEW ROUTING ===================== */
+  const isPresent = /present/i.test(location.search) || /present/i.test(location.hash);
+  document.body.classList.add(isPresent ? "mode-present" : "mode-vote");
+
+  /* ===================== 4. VOTING VIEW ===================== */
+  function initVotingView(){
+    const view   = document.getElementById("voteView");
+    const thanks = document.getElementById("thanks");
+    const checkBox = document.getElementById("checkBox");
+    const STORE = "ti_vote_v1";
+    let voted = false;
+
+    function showThanks(side){
+      checkBox.className = "check " + side;
+      thanks.classList.add("show");
+    }
+    // already voted on this device?
+    const prior = localStorage.getItem(STORE);
+    if (prior){ voted = true; view.classList.add("locked"); showThanks(prior); }
+
+    view.querySelectorAll(".choice").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (voted || !backend) return;
+        const side = btn.dataset.side;
+        voted = true; view.classList.add("locked");      // lock immediately (no double tap)
+        try {
+          await backend.vote(side);
+          localStorage.setItem(STORE, side);
+          showThanks(side);
+        } catch(err){
+          console.error(err);
+          voted = false; view.classList.remove("locked"); // let them retry
+        }
+      });
+    });
+
+    initBackend().then(() => view.classList.remove("connecting"));
+  }
+
+  /* ===================== 5. PRESENTER VIEW ===================== */
+  function initPresenterView(){
+    const numD = document.getElementById("numDigital");
+    const numP = document.getElementById("numPaper");
+    const barD = document.getElementById("barDigital");
+    const barP = document.getElementById("barPaper");
+    const totalEl = document.getElementById("totalVotes");
+    const prev = { digital:0, paper:0 };
+
+    function tweenNumber(el, to, dur=620){
+      const from = Number(el.dataset.v || 0);
+      el.dataset.v = to;
+      if (from === to){ el.textContent = to; return; }
+      const start = performance.now();
+      const ease = t => 1 - Math.pow(1 - t, 3);  // easeOutCubic
+      (function frame(now){
+        const t = Math.min(1, (now - start) / dur);
+        el.textContent = Math.round(from + (to - from) * ease(t));
+        if (t < 1) requestAnimationFrame(frame);
+      })(performance.now());
+    }
+    function pop(el){
+      el.animate(
+        [{transform:"scale(1)"},{transform:"scale(1.07)"},{transform:"scale(1)"}],
+        {duration:430, easing:"cubic-bezier(.22,1,.36,1)"}
+      );
+    }
+    function setBar(side, count, max, numEl, barEl){
+      barEl.style.height = (count <= 0 ? 0 : (count / max) * 100) + "%";
+      tweenNumber(numEl, count);
+      if (count > prev[side]) pop(numEl);
+      prev[side] = count;
+    }
+    function render({ digital, paper }){
+      const max = Math.max(digital, paper, 1);
+      setBar("digital", digital, max, numD, barD);
+      setBar("paper",   paper,   max, numP, barP);
+      tweenNumber(totalEl, digital + paper, 500);
+    }
+
+    // reset control (discreet + confirmation)
+    const modal   = document.getElementById("resetModal");
+    const openReset  = () => modal.classList.add("show");
+    const closeReset = () => modal.classList.remove("show");
+    document.getElementById("resetBtn").addEventListener("click", openReset);
+    document.getElementById("resetCancel").addEventListener("click", closeReset);
+    document.getElementById("resetModal").addEventListener("click", e => { if (e.target === modal) closeReset(); });
+    document.getElementById("resetConfirm").addEventListener("click", async () => {
+      try { await backend.reset(); } catch(err){ console.error(err); }
+      closeReset();
+    });
+
+    initBackend().then(() => {
+      backend.subscribe(render);
+      if (backend.mode === "local"){
+        // preview niceties: banner + keyboard to simulate votes
+        document.getElementById("previewFlag").classList.add("show");
+        window.addEventListener("keydown", e => {
+          if (e.key === "d" || e.key === "D") backend.vote("digital");
+          if (e.key === "p" || e.key === "P") backend.vote("paper");
+        });
+      }
+    });
+
+    // keyboard shortcuts available in both modes
+    window.addEventListener("keydown", e => {
+      if (e.key === "r" || e.key === "R") openReset();
+      if (e.key === "Escape") closeReset();
+    });
+  }
+
+  /* ===================== 6. GO ===================== */
+  if (isPresent) initPresenterView();
+  else initVotingView();
+</script>
+</body>
+</html>
