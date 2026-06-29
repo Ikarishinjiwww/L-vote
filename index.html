@@ -66,7 +66,7 @@ press D or P to add demo votes and watch the bars move.
     --ink3:#8E8E93;
     --bg:#F5F5F7;              /* projector background (swap to #1D1D1F for a dark stage) */
     --on-bg:#1D1D1F;
-    --track:#E7E7EC;           /* empty bar track */
+    --track:#ECECEF;           /* empty bar track */
     --hair:#E2E2E7;
     --white:#FFFFFF;
     --ease:cubic-bezier(.22,1,.36,1);
@@ -139,15 +139,15 @@ press D or P to add demo votes and watch the bars move.
   .pv-title{font-size:clamp(24px,3.4vw,46px);font-weight:700;letter-spacing:-.02em;
     color:var(--ink);margin:.35em 0 0;line-height:1.05}
 
-  .pv-stage{flex:1;display:flex;align-items:flex-end;justify-content:center;
-    gap:clamp(40px,11vw,180px);padding:clamp(20px,4vh,48px) 0}
-  .col{display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end}
-  .num{font-size:clamp(52px,9.5vw,168px);font-weight:700;letter-spacing:-.03em;line-height:1;
-    color:var(--ink);font-variant-numeric:tabular-nums;margin-bottom:clamp(14px,2vh,28px);
-    transform-origin:center bottom}
+  .pv-stage{flex:1 1 auto;min-height:0;display:flex;align-items:stretch;justify-content:center;
+    gap:clamp(40px,11vw,180px);padding:clamp(14px,3vh,40px) 0}
+  .col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:0}
+  .num{font-size:clamp(44px,8vw,140px);font-weight:700;letter-spacing:-.03em;line-height:1;
+    color:var(--ink);font-variant-numeric:tabular-nums;flex:0 0 auto;
+    margin-bottom:clamp(10px,1.6vh,22px);transform-origin:center bottom}
   .bar-track{
     width:clamp(110px,21vw,300px);
-    height:clamp(220px,52vh,560px);
+    flex:1 1 auto;min-height:0;max-height:clamp(180px,54vh,540px);
     background:var(--track);border-radius:clamp(16px,2vw,30px);
     display:flex;align-items:flex-end;overflow:hidden;
   }
@@ -157,11 +157,11 @@ press D or P to add demo votes and watch the bars move.
   }
   .bar-fill.digital{background:var(--blue)}
   .bar-fill.paper{background:var(--red)}
-  .col .label{margin-top:clamp(16px,2.4vh,30px);font-size:clamp(18px,2.4vw,36px);
+  .col .label{flex:0 0 auto;margin-top:clamp(12px,1.8vh,24px);font-size:clamp(18px,2.4vw,36px);
     font-weight:600;color:var(--ink2);letter-spacing:-.01em}
 
   .pv-foot{flex:0 0 auto;text-align:center;color:var(--ink3);
-    font-size:clamp(13px,1.5vw,18px);font-weight:500}
+    margin-top:clamp(8px,1.6vh,20px);font-size:clamp(14px,1.6vw,20px);font-weight:500}
   .pv-foot b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
 
   /* preview-mode banner (only when Firebase is not configured) */
@@ -173,13 +173,13 @@ press D or P to add demo votes and watch the bars move.
   }
   .preview-flag.show{display:block}
 
-  /* discreet reset control (presenter only) */
+  /* reset control — visible but understated (the confirm dialog prevents accidents) */
   .reset-btn{
-    position:fixed;left:16px;bottom:14px;z-index:20;
-    border:0;background:transparent;color:var(--ink3);
-    font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;
-    padding:8px 12px;border-radius:999px;opacity:.22;transition:opacity .2s var(--ease)}
-  .reset-btn:hover{opacity:.7;background:rgba(0,0,0,.04)}
+    position:fixed;left:18px;bottom:16px;z-index:20;cursor:pointer;
+    border:1px solid var(--hair);background:rgba(255,255,255,.72);color:var(--ink2);
+    font-family:inherit;font-size:14px;font-weight:600;
+    padding:9px 16px;border-radius:999px;opacity:.6;transition:opacity .2s var(--ease)}
+  .reset-btn:hover{opacity:1}
   body.mode-vote .reset-btn{display:none}
 
   .modal{position:fixed;inset:0;z-index:40;display:none;
@@ -248,7 +248,7 @@ press D or P to add demo votes and watch the bars move.
       </div>
     </div>
 
-    <div class="pv-foot"><b id="totalVotes">0</b> votes</div>
+    <div class="pv-foot"><b id="totalVotes">0</b> <span id="voteWord">votes</span></div>
 
     <div class="preview-flag" id="previewFlag">Preview mode — press D / P to add demo votes</div>
     <button class="reset-btn" id="resetBtn">reset</button>
@@ -405,7 +405,9 @@ press D or P to add demo votes and watch the bars move.
       const max = Math.max(digital, paper, 1);
       setBar("digital", digital, max, numD, barD);
       setBar("paper",   paper,   max, numP, barP);
-      tweenNumber(totalEl, digital + paper, 500);
+      const total = digital + paper;
+      tweenNumber(totalEl, total, 500);
+      document.getElementById("voteWord").textContent = (total === 1 ? "vote" : "votes");
     }
 
     // reset control (discreet + confirmation)
